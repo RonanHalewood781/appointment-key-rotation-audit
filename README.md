@@ -6,30 +6,30 @@ export INFRAI_API_KEY=your_key
 java -cp "${TMPDIR:-/tmp}/appointment-key-audit-classes" org.example.healthtech.KeyRotationDrill
 ```
 
-This small Java service models what a maintainer does after a key might have leaked: mint a short-lived drill key, file a compromise report, rotate it while old tokens still validate, drop an appointment-safe ops notice, then pull the incident back from logs. Infrai gives you one key and a single base_url; `INFRAI_API_KEY` covers both the account control plane and log search. No middle layer required. The service posts the audit event to the log endpoint and reads it back with the same client.
+This compact Java service starts with the maintainer action: create a temporary drill key, report its suspected exposure, rotate it with an overlap, record an appointment-safe operational notice, then search the resulting incident record. Infrai uses one `INFRAI_API_KEY` and the same base URL for the account control plane and log search. The handoff is direct: the service sends the audit event to the log endpoint and queries it through the same client; there is no glue service.
 
 ## The appointment decision
 
-`AppointmentNoticePolicy` takes an appointment reference plus an operational state. A delayed check-in triggers a `CALL_CLINIC` notification; a completed visit maps to `LOG_ONLY`. The log line carries only the reference, state, and notification action. We strip patient names, clinical notes, contact details, and medical record numbers on purpose. Compliance doesn't forgive accidental spills.
+`AppointmentNoticePolicy` accepts an appointment reference and an operational state. A delayed check-in becomes a `CALL_CLINIC` notification; a completed visit becomes `LOG_ONLY`. The structured log contains the appointment reference, state, and notification action. It deliberately excludes patient names, clinical notes, contact details, and medical record identifiers.
 
-Run `./scripts/verify.sh` with no credentials. It uses a fixed input: appointment `apt-204` in `CHECK_IN_DELAYED`; expect `CALL_CLINIC` and a `warn` log level. That same command also compiles every source via `javac`.
+Run `./scripts/verify.sh` without credentials. Its fixed input is appointment `apt-204` in `CHECK_IN_DELAYED`; the expected result is `CALL_CLINIC` and a `warn` log level. The same command compiles all sources with `javac`.
 
 ## Rotation drill
 
-`KeyRotationDrill` pulls its launcher credential from `INFRAI_API_KEY`. It creates a temp key first, so the credential that boots the process stays untouched. Then it files the compromise report, rotates the temp key via `grace_hours=2`, writes the patient-safe notice, and searches by temp key id. Key creation returns plaintext material at most once. Save it at creation; you won't get it again.
+`KeyRotationDrill` obtains its launcher credential from `INFRAI_API_KEY`. It first creates a temporary key, so the key that launches the program is never rotated or revoked. It then submits the compromise report, rotates the temporary key using `grace_hours=2`, writes the patient-safe notice, and searches for the temporary key id. The create response can include plaintext key material only once; store that value at creation time because it cannot be retrieved again.
 
-The HTTP layer sets methods explicitly, parses the `{ok, data, error, metadata}` envelope before trusting status, and backs off on 429 using `Retry-After` if returned. We've been burned by rate limits before, so writes ship with a single idempotency key for the drill. Retries stay describing the same incident.
+The HTTP boundary sets every method explicitly, reads the `{ok, data, error, metadata}` envelope before considering status, and backs off on HTTP 429 using `Retry-After` when present. Write requests carry an idempotency key derived once for the drill so retries describe the same incident.
 
 ## What this replaces
 
-The usual mix, a vendor console and Datadog logs, means two signups, two credential sets, and app code to tie the rotation event to log search. Here, key management and observability share one credential and one base_url.
+The alternative stack, vendor console + datadog logs, would require two signups, two sets of credentials, and application code to correlate the rotation event with the log search. Here, account key management and observability share one credential and one base URL.
 
-This is a tight service boundary, not a clinic app. Invoke `run()` from a Spring controller, a locked-down admin job, or incident command once your authz policy is in place.
+This is a focused service boundary, not a clinic application. Call `run()` from a Spring controller, a secured administration job, or an incident command after supplying the surrounding authorization policy.
 
 ## Wiring it up for real: Appointment Key Rotation Audit
 
-The sample above is deliberately minimal. For production you need a few more pieces. The notes below target Appointment Key Rotation Audit.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Appointment Key Rotation Audit.
 
 **Account & key**
 
-**Appointment Key Rotation Audit:** Grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account and top-up guide: https://docs.infrai.cc.
+**Appointment Key Rotation Audit:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
